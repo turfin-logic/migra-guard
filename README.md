@@ -1,34 +1,46 @@
-# migra-guard
+# migra-guard 🛡️
 
-A zero-config linter for PostgreSQL migrations that stops you from accidentally locking up your production database.
+**The "Cover Your Ass" (CYA) SQL Linter for PostgreSQL.**
 
-I built this because I got tired of seeing production go down over a simple `ALTER TABLE` statement. 
+Let’s be brutally honest. As a developer, you don’t fear database downtime. You fear the Post-Mortem incident meeting where you have to explain to the CTO why your simple `ALTER TABLE` statement locked up the production database for 20 minutes. 
 
-If you run `ALTER TABLE users ADD COLUMN phone VARCHAR NOT NULL;` on a table with 5 million rows, Postgres slaps an Access Exclusive Lock on the table. Your API goes down. Support tickets flood in.
+As a Tech Lead, you can't manually review every single SQL migration from junior developers. You need an automated system to catch PostgreSQL lock quirks *before* they merge, so you don't spend your weekend fixing outages.
 
-`migra-guard` catches this in your CI pipeline before the PR is even merged.
+`migra-guard` is an automated Senior DBA that lives in your CI pipeline. It protects your uptime, and more importantly, it protects your ego.
 
-## The problem with other linters
+## The "Context-Aware" Difference (No Alert Fatigue)
 
-Most SQL linters suffer from "context blindness." They just regex for keywords and flag *everything*. If you write a migration to create a temp table, and then drop it a few files later, a dumb linter will flag the `DROP TABLE` as a critical danger.
+Most SQL linters are dumb. They regex for keywords like `DROP` and throw false positives everywhere. If a developer creates a temporary table in a PR and drops it in the very next file, a dumb linter blocks the CI. This causes developers to ignore the linter entirely.
 
-`migra-guard` is stateful. It parses the AST and reads your `.sql` files chronologically to understand what's actually happening in your PR. 
+`migra-guard` uses a stateful AST (Abstract Syntax Tree) engine. It tracks the chronological state of your migrations.
 
-- Drop a table you just created in the same PR? Safe.
-- Drop an existing production table? CI blocked.
-- Add NOT NULL to a brand new table? Safe.
-- Add NOT NULL to a prod table without a DEFAULT? CI blocked.
+- **Drop an ephemeral table created in the same PR?** `migra-guard` knows it's empty. It stays quiet. (SAFE)
+- **Add NOT NULL to a brand new table?** Safe.
+- **Drop an existing production table?** CI blocked.
+- **Add NOT NULL to a prod table without a DEFAULT?** (Which forces Postgres into an Access Exclusive Lock). CI blocked.
 
 ## Usage
 
-Point it at a folder of raw `.sql` migrations (works great with Prisma's `--create-only` raw SQL output, or just manual migrations).
+Point it at your raw `.sql` migrations folder (works beautifully with manual migrations or Prisma's `--create-only` output).
 
 ```bash
 npx migra-guard check ./migrations
 ```
 
-## Sponsorship
+**Example Output:**
+```
+🔍 Scanning migrations...
 
-I maintain this solo. If this tool saves your engineering team from even a single 15-minute production outage, it's already paid for itself. 
+✅ SAFE      001_init.sql
+❌ [PG002_ADD_COLUMN_NOT_NULL] in 002_add_phone.sql
+   DANGEROUS: Adding NOT NULL column 'phone' without DEFAULT to table 'users'. 
+   This will fail if the table has existing rows and locks the table while verifying constraints.
 
-If you use this at your company, consider [sponsoring the project](https://github.com/sponsors/turfin-logic) so I can justify spending weekends adding more complex AST rules.
+🚨 CRITICAL VIOLATIONS FOUND. Deployment blocked.
+```
+
+## Sponsorship (The Ultimate Insurance Policy)
+
+I maintain this project solo. If `migra-guard` catches a single bad migration and saves your engineering team from a 15-minute production outage, it has paid for itself 100x over. 
+
+If you use this at your company, tell your manager to [sponsor the project](https://github.com/sponsors/turfin-logic). It's cheaper than a Senior DBA, and it's the best insurance policy your team can buy against human error.
