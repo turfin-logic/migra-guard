@@ -1,52 +1,34 @@
-# migra-guard 🛡️
+# migra-guard
 
-**The Automated Senior DBA for PostgreSQL migrations.**
+A zero-config linter for PostgreSQL migrations that stops you from accidentally locking up your production database.
 
-> Catch dangerous SQL migrations (table locks, accidental drops, missing defaults) in your CI/CD pipeline *before* they bring down your production database.
+I built this because I got tired of seeing production go down over a simple `ALTER TABLE` statement. 
 
----
+If you run `ALTER TABLE users ADD COLUMN phone VARCHAR NOT NULL;` on a table with 5 million rows, Postgres slaps an Access Exclusive Lock on the table. Your API goes down. Support tickets flood in.
 
-## 😱 The 2 AM Horror Story
-Your junior developer adds a new feature and includes this migration:
-```sql
-ALTER TABLE users ADD COLUMN phone_number VARCHAR NOT NULL;
-```
-It runs in 0.1 seconds on their local machine. They merge the PR. 
+`migra-guard` catches this in your CI pipeline before the PR is even merged.
 
-**What happens in production?** 
-Because the `users` table has 5 million rows and the new column lacks a `DEFAULT`, PostgreSQL places an **Access Exclusive Lock** on the entire table. Your app goes down for 15 minutes. 500 Errors everywhere. Support tickets flood in. 
+## The problem with other linters
 
-`migra-guard` prevents this. 
+Most SQL linters suffer from "context blindness." They just regex for keywords and flag *everything*. If you write a migration to create a temp table, and then drop it a few files later, a dumb linter will flag the `DROP TABLE` as a critical danger.
 
-## 🚀 Why migra-guard? (The "Context-Aware" Linter)
-Other SQL linters are dumb. They scream at you for dropping a table, even if you literally just created that table in the *same* Pull Request.
+`migra-guard` is stateful. It parses the AST and reads your `.sql` files chronologically to understand what's actually happening in your PR. 
 
-`migra-guard` uses a **Context-Aware Schema Tracker**. It reads your migrations chronologically and understands ephemeral state. 
+- Drop a table you just created in the same PR? Safe.
+- Drop an existing production table? CI blocked.
+- Add NOT NULL to a brand new table? Safe.
+- Add NOT NULL to a prod table without a DEFAULT? CI blocked.
 
-✅ **Dropping a table you just created in this PR?** `migra-guard` says it's SAFE.
-❌ **Dropping an existing production table?** `migra-guard` blocks the deployment.
+## Usage
 
-## 🛠️ Usage
-
-Simply run it against your raw `.sql` migrations folder (works beautifully with Prisma's `--create-only` raw SQL, or manual SQL migrations).
+Point it at a folder of raw `.sql` migrations (works great with Prisma's `--create-only` raw SQL output, or just manual migrations).
 
 ```bash
-npx migra-guard check ./prisma/migrations
+npx migra-guard check ./migrations
 ```
 
-### Example Output
-```
-🔍 Scanning migrations...
+## Sponsorship
 
-✅ SAFE      001_init.sql
-❌ [PG002_ADD_COLUMN_NOT_NULL] in 002_add_phone.sql
-   DANGEROUS: Adding NOT NULL column 'phone' without DEFAULT to table 'users'. 
-   This will lock the table while verifying constraints.
+I maintain this solo. If this tool saves your engineering team from even a single 15-minute production outage, it's already paid for itself. 
 
-🚨 CRITICAL VIOLATIONS FOUND. Deployment blocked.
-```
-
-## 💼 For Companies (Sponsorship)
-Downtime is expensive. If `migra-guard` catches a single bad migration and saves your team from a 15-minute production outage, it has paid for itself 100x over. 
-
-Consider [sponsoring this project](https://github.com/sponsors/turfin-logic) to ensure your company's database edge-cases are prioritized.
+If you use this at your company, consider [sponsoring the project](https://github.com/sponsors/turfin-logic) so I can justify spending weekends adding more complex AST rules.
