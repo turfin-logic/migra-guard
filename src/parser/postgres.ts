@@ -15,11 +15,10 @@ export class PostgresParser {
   }
 
   public parseFile(filePath: string): ParsedStatement[] {
-    const cwd = process.cwd();
-    const resolvedPath = path.resolve(cwd, filePath);
-    
-    // 1. Path Traversal Protection (LFI)
-    if (!resolvedPath.startsWith(cwd)) {
+    const cwd = fs.realpathSync(process.cwd());
+    const resolvedPath = fs.realpathSync(path.resolve(cwd, filePath));
+    const relative = path.relative(cwd, resolvedPath);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       throw new Error(`SECURITY ERROR: Attempted path traversal outside project directory: ${resolvedPath}`);
     }
 
@@ -29,6 +28,7 @@ export class PostgresParser {
 
     // 2. Out of Memory (OOM) Protection: Max 5MB file
     const stats = fs.statSync(resolvedPath);
+    if (!stats.isFile()) throw new Error('Expected a regular SQL file');
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
     if (stats.size > MAX_FILE_SIZE) {
       throw new Error(`SECURITY ERROR: File exceeds 5MB limit (${filePath})`);

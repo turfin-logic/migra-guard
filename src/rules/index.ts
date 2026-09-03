@@ -1,4 +1,3 @@
-import { SchemaTracker } from '../state/schema-tracker';
 import { ParsedStatement } from '../parser/postgres';
 
 export interface Violation {
@@ -9,5 +8,5 @@ export interface Violation {
 
 export interface Rule {
   id: string;
-  check(stmt: ParsedStatement, state: SchemaTracker): Violation | null;
+  check(stmt: ParsedStatement): Violation | null;
 }

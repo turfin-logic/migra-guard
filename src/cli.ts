@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from 'commander';
 import chalk from 'chalk';
 import * as path from 'path';
@@ -7,8 +8,8 @@ const program = new Command();
 
 program
   .name('migra-guard')
-  .description('A zero-config PostgreSQL migration safety linter')
-  .version('0.1.0');
+  .description('Conservative PostgreSQL migration linter with two rules')
+  .version('1.0.0');
 
 program
   .command('check')
@@ -16,30 +17,34 @@ program
   .argument('<path>', 'Directory containing .sql files')
   .action((targetPath) => {
     const fullPath = path.resolve(process.cwd(), targetPath);
-    if (!fs.existsSync(fullPath)) {
+    if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       console.error(chalk.red(`\n❌ Directory not found: ${fullPath}\n`));
-      process.exit(1);
+      process.exit(2);
     }
     
     console.log(chalk.blue(`\n🔍 Scanning migrations in: ${fullPath}\n`));
     
     // Import components inline for the CLI
     const { PostgresParser } = require('./parser/postgres');
-    const { SchemaTracker } = require('./state/schema-tracker');
     const { dropTableRule } = require('./rules/postgres/drop-table');
     const { addColumnNotNullRule } = require('./rules/postgres/add-column-not-null');
 
     const parser = new PostgresParser();
-    const state = new SchemaTracker();
     const rules = [dropTableRule, addColumnNotNullRule];
 
     let hasCritical = false;
     let fileCount = 0;
+    let hasErrors = false;
 
     // Get all SQL files sorted
     const files = fs.readdirSync(fullPath)
       .filter(f => f.endsWith('.sql'))
-      .sort(); // Natural sort for 001_x, 002_y
+      .sort(); // Lexical order; use zero-padded migration names.
+
+    if (files.length === 0) {
+      console.error('No SQL files found; nothing was checked.');
+      process.exit(2);
+    }
 
     for (const file of files) {
       const filePath = path.join(fullPath, file);
@@ -50,12 +55,9 @@ program
         let fileHasViolations = false;
 
         for (const stmt of stmts) {
-          // 1. Update State
-          state.processAst(stmt.ast);
-          
-          // 2. Check Rules
+          // Apply conservative rules independently of migration history.
           for (const rule of rules) {
-            const violation = rule.check(stmt, state);
+            const violation = rule.check(stmt);
             if (violation) {
               fileHasViolations = true;
               if (violation.severity === 'critical') hasCritical = true;
@@ -71,22 +73,25 @@ program
         }
 
         if (!fileHasViolations) {
-          console.log(chalk.green(`✅ SAFE      ${file}`));
+          console.log(chalk.green(`No covered violations: ${file}`));
         }
 
       } catch (err: any) {
         console.log(chalk.red(`❌ ERROR parsing ${file}: ${err.message}`));
-        hasCritical = true;
+        hasErrors = true;
       }
     }
 
     console.log(chalk.blue(`\n📊 Scan complete: ${fileCount} files checked.`));
     
-    if (hasCritical) {
-      console.log(chalk.red.bold(`\n🚨 CRITICAL VIOLATIONS FOUND. Deployment blocked.\n`));
+    if (hasErrors) {
+      console.error('Scan incomplete: input or parsing errors.');
+      process.exit(2);
+    } else if (hasCritical) {
+      console.log(chalk.red.bold(`\nPotentially destructive operations require review.\n`));
       process.exit(1);
     } else {
-      console.log(chalk.green.bold(`\n🚀 ALL CLEAR. Migrations are safe to deploy.\n`));
+      console.log(chalk.green.bold(`\nNo violations of the two implemented rules. This is not a deployment safety guarantee.\n`));
       process.exit(0);
     }
   });
