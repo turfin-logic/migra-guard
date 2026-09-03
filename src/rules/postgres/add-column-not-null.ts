@@ -1,11 +1,10 @@
 import { Rule, Violation } from '../index';
 import { ParsedStatement } from '../../parser/postgres';
-import { SchemaTracker } from '../../state/schema-tracker';
 
 export const addColumnNotNullRule: Rule = {
   id: 'PG002_ADD_COLUMN_NOT_NULL',
   
-  check(stmt: ParsedStatement, state: SchemaTracker): Violation | null {
+  check(stmt: ParsedStatement): Violation | null {
     const ast = stmt.ast;
     
     // node-sql-parser structure for ALTER TABLE ... ADD COLUMN
@@ -25,11 +24,6 @@ export const addColumnNotNullRule: Rule = {
             
             // Extract column name safely
             const colName = expr.column?.column?.expr?.value || 'unknown_column';
-
-            // CONTEXT AWARENESS: If table is new, it's empty, so adding NOT NULL is perfectly safe
-            if (tableName !== 'unknown' && state.isEphemeral(tableName)) {
-               continue; 
-            }
 
             return {
               ruleId: this.id,

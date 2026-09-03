@@ -1,46 +1,49 @@
-# migra-guard 🛡️
+# migra-guard
 
-**The "Cover Your Ass" (CYA) SQL Linter for PostgreSQL.**
+[![CI](https://github.com/turfin-logic/migra-guard/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/turfin-logic/migra-guard/actions/workflows/test.yml)
 
-Let’s be brutally honest. As a developer, you don’t fear database downtime. You fear the Post-Mortem incident meeting where you have to explain to the CTO why your simple `ALTER TABLE` statement locked up the production database for 20 minutes. 
+Experimental PostgreSQL migration linter with two conservative rules: flag DROP TABLE and ADD COLUMN NOT NULL without a default. It does not connect to a database, estimate locks, know deployed migration state or guarantee safe deployment.
 
-As a Tech Lead, you can't manually review every single SQL migration from junior developers. You need an automated system to catch PostgreSQL lock quirks *before* they merge, so you don't spend your weekend fixing outages.
+## Run
 
-`migra-guard` is an automated Senior DBA that lives in your CI pipeline. It protects your uptime, and more importantly, it protects your ego.
+Requires Node.js 22.14+ and npm.
 
-## The "Context-Aware" Difference (No Alert Fatigue)
-
-Most SQL linters are dumb. They regex for keywords like `DROP` and throw false positives everywhere. If a developer creates a temporary table in a PR and drops it in the very next file, a dumb linter blocks the CI. This causes developers to ignore the linter entirely.
-
-`migra-guard` uses a stateful AST (Abstract Syntax Tree) engine. It tracks the chronological state of your migrations.
-
-- **Drop an ephemeral table created in the same PR?** `migra-guard` knows it's empty. It stays quiet. (SAFE)
-- **Add NOT NULL to a brand new table?** Safe.
-- **Drop an existing production table?** CI blocked.
-- **Add NOT NULL to a prod table without a DEFAULT?** (Which forces Postgres into an Access Exclusive Lock). CI blocked.
-
-## Usage
-
-Point it at your raw `.sql` migrations folder (works beautifully with manual migrations or Prisma's `--create-only` output).
-
-```bash
-npx migra-guard check ./migrations
+```sh
+git clone https://github.com/turfin-logic/migra-guard.git
+cd migra-guard
+npm ci --ignore-scripts
+npm run build
+node dist/cli.js --help
+node dist/cli.js check ./test-migrations
 ```
 
-**Example Output:**
+The included migration folder deliberately contains dangerous examples; a nonzero result is expected. Input must be a directory within the current project, including real-path resolution of files. Only its immediate `.sql` files are scanned, in lexical order. Use zero-padded names. Empty input and parser failures are incomplete scans, not passing checks.
+
+| Exit | Meaning |
+|---|---|
+| 0 | No violations of the two covered rules |
+| 1 | Covered operation requires human review |
+| 2 | Input error or incomplete parsing |
+
+## Conservative policy
+
+Every DROP TABLE is flagged, even after a CREATE in the same input. Every NOT NULL addition without DEFAULT is flagged, even on an apparently new table. A migration directory alone cannot prove that a table is undeployed or empty. This intentionally produces false positives; review them with database context.
+
+For example, `CREATE TABLE customers (id INT); DROP TABLE customers;` produces a violation. Creating and populating a table before adding a required column also produces a violation. Ordinary CREATE TABLE has no covered violation; that says nothing about application compatibility or deployment safety.
+
+## Verify
+
+```sh
+npm test
+npm run typecheck
+npm audit --audit-level=high
+npm pack --dry-run
 ```
-🔍 Scanning migrations...
 
-✅ SAFE      001_init.sql
-❌ [PG002_ADD_COLUMN_NOT_NULL] in 002_add_phone.sql
-   DANGEROUS: Adding NOT NULL column 'phone' without DEFAULT to table 'users'. 
-   This will fail if the table has existing rows and locks the table while verifying constraints.
+Tests exercise rules with parsed SQL and invoke the built CLI in temporary fixture directories. Cases include historical CREATE followed by DROP, inserted data before NOT NULL, schema-qualified DROP, empty directories and parse errors. The CI workflow targets Windows/Linux and Node 22.14/24.
 
-🚨 CRITICAL VIOLATIONS FOUND. Deployment blocked.
-```
+## Scope
 
-## Sponsorship (The Ultimate Insurance Policy)
+SQL parsing uses `node-sql-parser`; PostgreSQL syntax it does not support fails the scan. No full PostgreSQL semantic analysis is claimed. Other destructive operations, migration rollback correctness, defaults that evaluate to NULL, lock duration, multi-statement business invariants and application compatibility require separate review. Files have size bounds; these are resource limits, not a hostile-input sandbox.
 
-I maintain this project solo. If `migra-guard` catches a single bad migration and saves your engineering team from a 15-minute production outage, it has paid for itself 100x over. 
-
-If you use this at your company, tell your manager to [sponsor the project](https://github.com/sponsors/turfin-logic). It's cheaper than a Senior DBA, and it's the best insurance policy your team can buy against human error.
+Code separates CLI input/reporting, parser and rules. No state-based safety exemptions are inferred. [Claim evidence](docs/claim-evidence.md). ISC license, matching existing package metadata.
