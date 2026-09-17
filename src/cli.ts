@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import chalk from 'chalk';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -15,7 +14,8 @@ program
   .command('check')
   .description('Lint SQL migration files for dangerous operations')
   .argument('<path>', 'Directory containing .sql files')
-  .action((targetPath) => {
+  .action(async (targetPath) => {
+    const { default: chalk } = await import('chalk');
     const fullPath = path.resolve(process.cwd(), targetPath);
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) {
       console.error(chalk.red(`\n❌ Directory not found: ${fullPath}\n`));
@@ -96,4 +96,7 @@ program
     }
   });
 
-program.parse(process.argv);
+program.parseAsync(process.argv).catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 2;
+});
